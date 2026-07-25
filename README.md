@@ -75,6 +75,10 @@ Progress, ETA, and memory usage are printed for every chunk.
   quality bar to chase.
 - [FFmpeg](https://ffmpeg.org/) for decoding, mastering, and encoding.
 
+## About
+
+CrispVoice is an open source project by [Francium Tech](https://francium.tech).
+
 ## License
 
 MIT. Model weights are downloaded separately from
