@@ -7,6 +7,9 @@
 # Model weights (~713 MB, downloaded by setup.sh)
 models/
 
+# Experiments: A/B test outputs, tuning sessions, throwaway comparisons
+labs/
+
 # Audio: never commit recordings - they may contain someone's voice.
 # Exception: the demo/ clips, published deliberately as a before/after sample.
 samples/

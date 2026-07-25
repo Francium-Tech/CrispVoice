@@ -28,21 +28,31 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent
 RUN_DIR = PROJECT_DIR / "models" / "enhancer_stage2"
 
-# Tuned against a CleanVoice reference (2026-07-25): tame lows, lift the
-# 600-2500 Hz presence core, cut 3.5k harshness, roll off synthesis hiss
-# above 13 kHz, compress gently (target LRA ~4-5), master to -19 LUFS.
-MASTER_FILTERS = (
-    "highpass=f=70,"
-    "bass=g=-3.5:f=250,"
-    "equalizer=f=1300:t=q:w=0.6:g=3.5,"
-    "equalizer=f=3500:t=q:w=1.0:g=-3.5,"
-    "treble=g=-5:f=8000,"
-    "lowpass=f=13000:p=2,lowpass=f=13000:p=2,"
-    "deesser,"
-    "acompressor=threshold=-22dB:ratio=2:attack=10:release=250,"
-    "loudnorm=I=-19:TP=-2:LRA=7,"
-    "aresample=44100"  # loudnorm silently upsamples to 192 kHz
-)
+# Tuned via blind A/B testing against a commercial reference, with both human
+# and AI (Gemini) listening feedback. Keep it gentle: chest warmth at 120 Hz,
+# slight presence, no treble cuts (dark tilts read as muffled), light 2:1
+# compression, -19 LUFS. Peak clipping is handled upstream in main().
+MASTER_PRESETS = {
+    "podcast": (
+        "bass=g=2.5:f=120,"
+        "equalizer=f=3000:t=q:w=1.5:g=1,"
+        "deesser,"
+        "acompressor=threshold=-22dB:ratio=2:attack=10:release=180:makeup=3,"
+        "alimiter=limit=0.89:level=false,"
+        "loudnorm=I=-19:TP=-1.5:LRA=6,"
+        "aresample=44100"  # loudnorm silently upsamples to 192 kHz
+    ),
+    # Same tone, even lighter dynamics.
+    "natural": (
+        "bass=g=2.5:f=120,"
+        "equalizer=f=3000:t=q:w=1.5:g=1,"
+        "deesser,"
+        "acompressor=threshold=-20dB:ratio=1.7:attack=12:release=220:makeup=2,"
+        "alimiter=limit=0.89:level=false,"
+        "loudnorm=I=-19:TP=-1.5:LRA=7,"
+        "aresample=44100"
+    ),
+}
 
 
 def parse_args():
@@ -52,13 +62,17 @@ def parse_args():
     parser.add_argument("output", type=Path, nargs="?")
     parser.add_argument("--denoise-only", action="store_true", help="neural denoise without generative restoration")
     parser.add_argument("--no-master", action="store_true", help="skip EQ/compression/loudness mastering")
+    parser.add_argument("--preset", default="podcast", choices=sorted(MASTER_PRESETS),
+                        help="mastering flavor: 'podcast' (warm, produced, -16 LUFS) or "
+                             "'natural' (neutral, dynamic, -19 LUFS). default podcast")
     parser.add_argument("--threads", type=int, default=max(1, cpu_count // 2),
                         help=f"CPU threads for the model (default {max(1, cpu_count // 2)} of {cpu_count}, "
                              "leaving the rest for the OS)")
     parser.add_argument("--chunk-seconds", type=float, default=10.0,
                         help="audio chunk size; smaller = less RAM, default 10")
-    parser.add_argument("--nfe", type=int, default=32, help="diffusion solver steps (quality vs speed), default 32")
-    parser.add_argument("--lambd", type=float, default=0.9, help="denoise strength 0..1, default 0.9")
+    parser.add_argument("--nfe", type=int, default=64, help="diffusion solver steps (quality vs speed), default 64")
+    parser.add_argument("--lambd", type=float, default=0.6,
+                        help="denoise strength 0..1, default 0.6 (higher gets watery)")
     parser.add_argument("--tau", type=float, default=0.5, help="prior temperature 0..1, default 0.5")
     return parser.parse_args()
 
@@ -89,10 +103,10 @@ def decode_to_wav(src: Path, dst: Path):
     run_ffmpeg(["-i", str(src), "-ac", "1", "-ar", "44100", "-c:a", "pcm_f32le", str(dst)])
 
 
-def encode_output(src: Path, dst: Path, master: bool):
+def encode_output(src: Path, dst: Path, master: bool, preset: str = "podcast"):
     args = ["-i", str(src)]
     if master:
-        args += ["-af", MASTER_FILTERS]
+        args += ["-af", MASTER_PRESETS[preset]]
     if dst.suffix.lower() == ".mp3":
         args += ["-c:a", "libmp3lame", "-b:a", "192k"]
     elif dst.suffix.lower() in (".m4a", ".aac"):
@@ -181,9 +195,15 @@ def main():
 
         hwav, new_sr = run_model(dwav, sr, args)
 
+        # The model can emit peaks above digital full scale; without this,
+        # 16-bit/lossy encoding hard-clips them into audible crackle.
+        peak = float(hwav.abs().max())
+        if peak > 0.98:
+            hwav = hwav * (0.98 / peak)
+
         enhanced = tmp / "enhanced.wav"
         sf.write(enhanced, hwav.numpy(), new_sr)
-        encode_output(enhanced, out, master=not args.no_master)
+        encode_output(enhanced, out, master=not args.no_master, preset=args.preset)
 
     print(f"wrote: {out}")
 
