@@ -37,12 +37,13 @@ tool's output.
 
 ## Hear it
 
-A 14-second clip recorded with background noise, before and after:
+Two short clips, before and after (or use the players on the
+[demo page](https://crispvoice.francium.tech)):
 
-| | |
-|---|---|
-| Before (raw recording) | [demo/noise.m4a](demo/noise.m4a) |
-| After (CrispVoice) | [demo/crispvoice.mp3](demo/crispvoice.mp3) |
+| Voice | Before | After |
+|---|---|---|
+| Interview, room noise | [demo/noise.m4a](demo/noise.m4a) | [demo/crispvoice.mp3](demo/crispvoice.mp3) |
+| Broadcast clip, compressed | [demo/woman.m4a](demo/woman.m4a) | [demo/woman_crispvoice.mp3](demo/woman_crispvoice.mp3) |
 
 ## Quickstart
 

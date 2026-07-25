@@ -21,6 +21,8 @@ samples/
 *.aiff
 !demo/noise.m4a
 !demo/crispvoice.mp3
+!demo/woman.m4a
+!demo/woman_crispvoice.mp3
 
 # OS / editor noise
 .DS_Store
