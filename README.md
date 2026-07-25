@@ -30,6 +30,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical breakdown,
 including how the mastering EQ was fitted band-by-band against a commercial
 tool's output.
 
+## Hear it
+
+A 14-second clip recorded with background noise, before and after:
+
+| | |
+|---|---|
+| Before (raw recording) | [demo/noise.m4a](demo/noise.m4a) |
+| After (CrispVoice) | [demo/crispvoice.mp3](demo/crispvoice.mp3) |
+
 ## Quickstart
 
 Requires [uv](https://docs.astral.sh/uv/) and curl. Tested on macOS

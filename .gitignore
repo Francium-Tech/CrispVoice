@@ -7,7 +7,8 @@
 # Model weights (~713 MB, downloaded by setup.sh)
 models/
 
-# Audio: never commit recordings - they may contain someone's voice
+# Audio: never commit recordings - they may contain someone's voice.
+# Exception: the demo/ clips, published deliberately as a before/after sample.
 samples/
 *.wav
 *.mp3
@@ -15,6 +16,8 @@ samples/
 *.aac
 *.flac
 *.aiff
+!demo/noise.m4a
+!demo/crispvoice.mp3
 
 # OS / editor noise
 .DS_Store
