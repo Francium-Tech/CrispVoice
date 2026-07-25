@@ -34,41 +34,47 @@ Both are followed by a broadcast-style mastering chain for the final polish.
 flowchart TD
     A["input file<br/>(mp3 / m4a / wav)"] --> B["ffmpeg decode<br/>mono, 44.1 kHz, float32"]
     B --> C["chunker<br/>10 s chunks, 1 s overlap"]
-    C --> D["Resemble Enhance (CPU)<br/>stage 1: neural denoiser<br/>stage 2: generative enhancer<br/>(CFM, nfe=32 solver steps)"]
+    C --> D["Resemble Enhance (CPU)<br/>generative re-synthesis<br/>(CFM, lambd 0.4, nfe 64)"]
     D --> E["merge chunks<br/>cross-correlation alignment<br/>+ crossfade"]
-    E --> F["mastering chain (ffmpeg)"]
+    A --> H["DeepFilterNet3<br/>phase-preserving denoise<br/>of the original"]
+    E --> J["texture blend<br/>75% synthesis + 25% original<br/>restores transients, breaths,<br/>room decay"]
+    H --> J
+    J --> K["peak normalize<br/>(prevents hard clipping)"]
+    K --> F["mastering chain (ffmpeg)"]
     F --> G["encode output<br/>wav / mp3 / m4a"]
 
     subgraph F2["mastering chain detail"]
         direction TB
-        M1["highpass 70 Hz<br/>(rumble)"] --> M2["bass shelf -3.5 dB @ 250 Hz<br/>(boom)"]
-        M2 --> M3["+3.5 dB @ 1.3 kHz<br/>(presence core)"]
-        M3 --> M4["-3.5 dB @ 3.5 kHz<br/>(harshness)"]
-        M4 --> M5["treble -5 dB @ 8 kHz<br/>+ 24 dB/oct lowpass @ 13 kHz<br/>(synthesis hiss)"]
-        M5 --> M6["de-esser"]
+        M1["bass shelf +3.5 dB @ 160 Hz<br/>(chest warmth)"] --> M2["+1.5 dB @ 400 Hz (body)<br/>-1.5 dB @ 280 Hz (articulation)"]
+        M2 --> M3["air: +2.5 dB @ 9 kHz<br/>+1 dB @ 10 kHz"]
+        M3 --> M6["de-esser"]
         M6 --> M7["compressor 2:1 @ -22 dB<br/>(gentle, keeps dynamics)"]
-        M7 --> M8["loudnorm -19 LUFS<br/>EBU R128, TP -2 dB"]
+        M7 --> M8["limiter, then loudnorm<br/>-19 LUFS EBU R128"]
     end
 
     F -.-> F2
 ```
 
-## How the mastering chain was tuned
+## How the pipeline was tuned
 
-The chain was not guessed; it was fitted against a CleanVoice output of the
-same recording:
+Roughly fifty variants were blind A/B tested against a CleanVoice output of
+the same recording, judged by a human listener and by AI review (Gemini
+audio analysis for verbal diagnosis; DNSMOS/SQUIM MOS predictors as sanity
+checks). The final version scores within a few percent of the commercial
+reference. Hard-won lessons:
 
-1. Computed long-term average spectra (Welch PSD, 9 octave-ish bands) of our
-   un-mastered model output vs the CleanVoice reference, level-normalized on
-   the 300-5000 Hz speech core.
-2. The measured gaps became filters: +16 dB excess above 12 kHz (model
-   synthesis hiss) -> steep lowpass; +3.5 dB low-end excess -> bass shelf;
-   recessed 600-2500 Hz -> presence boost; +4 dB @ 2.5-5 kHz -> peaking cut.
-3. Dynamics: our old chain measured LRA 1.9 LU vs their 3.9 (over-compressed)
-   and -16 vs their -19 LUFS (too loud). Compression softened to 2:1,
-   loudness target moved to -19 LUFS.
-4. Iterated twice; final output sits within about +-1 dB of the reference in
-   every band except 1-2.5 kHz.
+1. **Peak clipping was the biggest bug.** The model emits peaks above digital
+   full scale; encoding without normalization hard-clips them into audible
+   crackle. Spectral averages never show this - waveform peaks do.
+2. **Static spectral matching fails.** A 28-band FIR match EQ fitted to the
+   reference measured within +-1 dB yet sounded phasey and smeared (FIR
+   ringing). Gentle low-order filters beat surgical curves.
+3. **Re-synthesis alone sounds synthetic.** The winning move was blending
+   25% of a phase-preserving denoise of the original back in - it restores
+   micro-transients, breath envelopes, and room decay that generative models
+   round off.
+4. **Aggressive denoising sounds watery.** lambd 0.4 beat 0.9; noise gates
+   and multiband compressors introduced more artifacts than they removed.
 
 ## Resource safety (hard requirement)
 

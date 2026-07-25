@@ -17,16 +17,19 @@ sending their voice to a server.
 
 "Studio quality" is two problems, and this pipeline solves both:
 
-1. **Cleanup** - a neural denoiser removes background noise, hum, and room
-   reverb.
-2. **Restoration** - a generative model ([Resemble
-   Enhance](https://github.com/resemble-ai/resemble-enhance), MIT) literally
-   re-synthesizes the voice at 44.1 kHz, adding back the bandwidth and body a
-   cheap microphone never captured. This is the "suddenly I sound like a
-   broadcast host" effect.
-3. **Mastering** - a broadcast-style ffmpeg chain: EQ tuned against a
-   commercial reference, de-essing, gentle 2:1 compression, and EBU R128
-   loudness normalization to -19 LUFS.
+1. **Restoration** - a generative model ([Resemble
+   Enhance](https://github.com/resemble-ai/resemble-enhance), MIT)
+   re-synthesizes the voice at 44.1 kHz, removing noise and adding back the
+   bandwidth and body a cheap microphone never captured.
+2. **Texture blend** - 25% of a
+   [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)-denoised copy of
+   the original is mixed back in. Re-synthesis alone sounds subtly synthetic;
+   the blend restores the natural transients, breaths, and room decay of the
+   real recording. This stage came out of blind A/B testing against a
+   commercial reference and moved the quality from "processed" to "studio."
+3. **Mastering** - a broadcast-style ffmpeg chain: chest warmth, articulation
+   and air EQ, de-essing, gentle 2:1 compression, and EBU R128 loudness
+   normalization to -19 LUFS.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical breakdown,
 including how the mastering EQ was fitted band-by-band against a commercial
@@ -57,7 +60,7 @@ More options:
 
 ```sh
 ./enhance in.mp3 out.mp3          # output format follows the extension (wav/mp3/m4a)
-./enhance in.mp3 --nfe 64         # higher quality, ~2x slower
+./enhance in.mp3 --blend 0.4      # more natural texture (default 0.25)
 ./enhance in.mp3 --denoise-only   # cleanup without generative re-synthesis
 ./enhance in.mp3 --threads 2      # use even less CPU
 ./enhance in.mp3 --no-master      # skip the mastering chain

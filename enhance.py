@@ -28,15 +28,21 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent
 RUN_DIR = PROJECT_DIR / "models" / "enhancer_stage2"
 
-# Tuned via blind A/B testing against a commercial reference, with both human
-# and AI (Gemini) listening feedback. Keep it gentle: chest warmth at 120 Hz,
-# slight presence, no treble cuts (dark tilts read as muffled), light 2:1
+# Tuned via blind A/B testing against a commercial reference, with human and
+# AI (Gemini) listening feedback: chest warmth (160 Hz shelf, 400 Hz fill),
+# a small 280 Hz dip for articulation, air shelves at 9-10 kHz, light 2:1
 # compression, -19 LUFS. Peak clipping is handled upstream in main().
+_TONE = (
+    "bass=g=3.5:f=160,"
+    "equalizer=f=400:t=q:w=1.2:g=1.5,"
+    "equalizer=f=280:t=q:w=0.9:g=-1.5,"
+    "treble=g=2.5:f=9000,"
+    "treble=g=1:f=10000,"
+    "deesser,"
+)
 MASTER_PRESETS = {
     "podcast": (
-        "bass=g=2.5:f=120,"
-        "equalizer=f=3000:t=q:w=1.5:g=1,"
-        "deesser,"
+        _TONE +
         "acompressor=threshold=-22dB:ratio=2:attack=10:release=180:makeup=3,"
         "alimiter=limit=0.89:level=false,"
         "loudnorm=I=-19:TP=-1.5:LRA=6,"
@@ -44,9 +50,7 @@ MASTER_PRESETS = {
     ),
     # Same tone, even lighter dynamics.
     "natural": (
-        "bass=g=2.5:f=120,"
-        "equalizer=f=3000:t=q:w=1.5:g=1,"
-        "deesser,"
+        _TONE +
         "acompressor=threshold=-20dB:ratio=1.7:attack=12:release=220:makeup=2,"
         "alimiter=limit=0.89:level=false,"
         "loudnorm=I=-19:TP=-1.5:LRA=7,"
@@ -71,8 +75,13 @@ def parse_args():
     parser.add_argument("--chunk-seconds", type=float, default=10.0,
                         help="audio chunk size; smaller = less RAM, default 10")
     parser.add_argument("--nfe", type=int, default=64, help="diffusion solver steps (quality vs speed), default 64")
-    parser.add_argument("--lambd", type=float, default=0.6,
-                        help="denoise strength 0..1, default 0.6 (higher gets watery)")
+    parser.add_argument("--lambd", type=float, default=0.4,
+                        help="denoise strength 0..1, default 0.4 (higher gets watery)")
+    parser.add_argument("--no-blend", action="store_true",
+                        help="skip blending in the phase-preserving denoised original (see --blend)")
+    parser.add_argument("--blend", type=float, default=0.25,
+                        help="how much DeepFilterNet-denoised original to mix in for natural "
+                             "voice grain, 0..1, default 0.25")
     parser.add_argument("--tau", type=float, default=0.5, help="prior temperature 0..1, default 0.5")
     return parser.parse_args()
 
@@ -114,6 +123,34 @@ def encode_output(src: Path, dst: Path, master: bool, preset: str = "podcast"):
     else:
         args += ["-c:a", "pcm_s16le"]
     run_ffmpeg([*args, str(dst)])
+
+
+def dfn_denoise(src: Path, tmp: Path):
+    """Denoise the original recording with DeepFilterNet (phase-preserving).
+
+    Runs in its own venv (.venv-dfn) because it needs an older torch than the
+    main environment. Returns the path to a mono 44.1 kHz wav, or None if the
+    venv is missing (setup.sh not rerun) so the caller can skip blending.
+    """
+    import os
+    import subprocess
+
+    dfn = PROJECT_DIR / ".venv-dfn" / "bin" / "deepFilter"
+    if not dfn.exists():
+        return None
+    in48 = tmp / "dfn_in.wav"
+    # -6 dB of headroom: DeepFilterNet writes 16-bit output and will hard-clip
+    # peaks above full scale into audible crackle.
+    run_ffmpeg(["-i", str(src), "-af", "volume=0.5", "-ac", "1", "-ar", "48000", str(in48)])
+    env = {**os.environ,
+           "OMP_NUM_THREADS": str(ARGS.threads),
+           "XDG_CACHE_HOME": str(PROJECT_DIR / "models" / "dfn-cache")}
+    subprocess.run([str(dfn), str(in48), "-o", str(tmp)], check=True, env=env,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    out48 = tmp / "dfn_in_DeepFilterNet3.wav"
+    out44 = tmp / "dfn_44.wav"
+    run_ffmpeg(["-i", str(out48), "-af", "volume=2.0", "-ac", "1", "-ar", "44100", str(out44)])
+    return out44
 
 
 def rss_gb():
@@ -194,6 +231,24 @@ def main():
         print(f"input: {args.input.name} ({len(audio) / sr:.1f}s @ {sr} Hz)", flush=True)
 
         hwav, new_sr = run_model(dwav, sr, args)
+
+        # Blend in the phase-preserving denoised original: restores natural
+        # voice grain and chest resonance the re-synthesis loses. (This won the
+        # blind A/B against pure model output and pure denoise.)
+        if not args.no_blend and args.blend > 0:
+            dfn_wav = dfn_denoise(args.input, tmp)
+            if dfn_wav is not None:
+                print("blending in denoised original "
+                      f"({1 - args.blend:.0%}/{args.blend:.0%}) ...", flush=True)
+                dfn_audio, dfn_sr = sf.read(dfn_wav, dtype="float32")
+                if dfn_sr != new_sr:
+                    dfn_audio = torch.from_numpy(dfn_audio)
+                    from torchaudio.functional import resample as ta_resample
+                    dfn_audio = ta_resample(dfn_audio, dfn_sr, new_sr).numpy()
+                n = min(len(hwav), len(dfn_audio))
+                hwav = (1 - args.blend) * hwav[:n] + args.blend * torch.from_numpy(dfn_audio[:n])
+            else:
+                print("note: .venv-dfn missing, skipping blend (rerun setup.sh)", flush=True)
 
         # The model can emit peaks above digital full scale; without this,
         # 16-bit/lossy encoding hard-clips them into audible crackle.

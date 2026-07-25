@@ -21,6 +21,10 @@ if command -v uv >/dev/null 2>&1; then
         matplotlib pandas imageio-ffmpeg numpy scipy 2>/dev/null || true
 fi
 
+# DeepFilterNet may have cached its model in the user cache dir during
+# early development runs (current versions cache inside the project).
+rm -rf "$HOME/.cache/DeepFilterNet" 2>/dev/null || true
+
 cd /
 rm -rf "$DIR"
 echo "done - everything removed."

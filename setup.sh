@@ -55,6 +55,11 @@ msg = 'raise RuntimeError("deepspeed stub: training is not supported in this ins
 print(f"stub written to {root}")
 EOF
 
+echo "==> [3b/5] Creating DeepFilterNet environment (blend stage; needs older torch)"
+uv venv --python 3.11 .venv-dfn
+uv pip install --python .venv-dfn/bin/python deepfilternet \
+    "torch==2.1.2" "torchaudio==2.1.2" "numpy<2" soundfile
+
 echo "==> [4/5] Downloading Resemble Enhance weights (~713 MB, one time)"
 HF="https://huggingface.co/ResembleAI/resemble-enhance/resolve/main/enhancer_stage2"
 mkdir -p models/enhancer_stage2/ds/G/default
