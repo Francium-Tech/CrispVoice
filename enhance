@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launcher: project-local Python at low CPU priority so the OS stays responsive.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec nice -n 15 "$DIR/.venv/bin/python" "$DIR/enhance.py" "$@"

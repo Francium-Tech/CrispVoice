@@ -1,0 +1,22 @@
+# Everything heavy or personal stays out of the repo.
+
+# Project-local Python runtime and environment (rebuilt by setup.sh)
+.runtime/
+.venv/
+
+# Model weights (~713 MB, downloaded by setup.sh)
+models/
+
+# Audio: never commit recordings - they may contain someone's voice
+samples/
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.aiff
+
+# OS / editor noise
+.DS_Store
+__pycache__/
+*.pyc
