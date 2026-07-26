@@ -9,8 +9,8 @@ Designed to leave the machine usable while it runs: CPU-only by default,
 capped thread count, small processing chunks, progress + ETA on every chunk.
 
 Usage:
-    ./enhance input.mp3                  # writes input_studio.wav
-    ./enhance input.mp3 out.mp3          # output format follows extension
+    ./enhance input.mp3                  # writes input_studio.mp3
+    ./enhance input.mp3 out.wav          # output format follows extension
     ./enhance input.mp3 --denoise-only   # skip generative stage (faster, subtler)
     ./enhance input.mp3 --nfe 64         # more diffusion steps = better, slower
     ./enhance input.mp3 --threads 2      # even gentler on the machine
@@ -286,7 +286,7 @@ def main():
     args = ARGS
     if not args.input.exists():
         sys.exit(f"input not found: {args.input}")
-    out = args.output or args.input.with_name(args.input.stem + "_studio.wav")
+    out = args.output or args.input.with_name(args.input.stem + "_studio.mp3")
 
     import soundfile as sf
     import torch

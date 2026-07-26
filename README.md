@@ -60,13 +60,13 @@ runtimes; every byte lives inside this folder and uninstalls with it).
 git clone https://github.com/Francium-Tech/CrispVoice.git
 cd CrispVoice
 ./setup.sh                    # one-time: local Python + PyTorch + model weights
-./enhance recording.mp3       # writes recording_studio.wav
+./enhance recording.mp3       # writes recording_studio.mp3
 ```
 
 More options:
 
 ```sh
-./enhance in.mp3 out.mp3          # output format follows the extension (wav/mp3/m4a)
+./enhance in.mp3 out.wav          # output format follows the extension; use .wav for lossless
 ./enhance in.mp3 --preview 30     # quick sample: process only the first 30 seconds
 ./enhance in.mp3 --nfe 32         # ~2x faster, slightly lower quality (default 64)
 ./enhance in.mp3 --blend 0.4      # more natural texture (default 0.25)
