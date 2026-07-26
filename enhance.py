@@ -66,6 +66,8 @@ def parse_args():
     parser.add_argument("output", type=Path, nargs="?")
     parser.add_argument("--denoise-only", action="store_true", help="neural denoise without generative restoration")
     parser.add_argument("--no-master", action="store_true", help="skip EQ/compression/loudness mastering")
+    parser.add_argument("--preview", type=float, default=None, metavar="SECONDS",
+                        help="process only the first N seconds - a quick sample instead of the full run")
     parser.add_argument("--preset", default="podcast", choices=sorted(MASTER_PRESETS),
                         help="mastering flavor: 'podcast' (warm, produced, -16 LUFS) or "
                              "'natural' (neutral, dynamic, -19 LUFS). default podcast")
@@ -108,8 +110,11 @@ def run_ffmpeg(args):
     subprocess.run(cmd, check=True)
 
 
-def decode_to_wav(src: Path, dst: Path):
-    run_ffmpeg(["-i", str(src), "-ac", "1", "-ar", "44100", "-c:a", "pcm_f32le", str(dst)])
+def decode_to_wav(src: Path, dst: Path, seconds: float | None = None):
+    args = ["-i", str(src)]
+    if seconds:
+        args += ["-t", str(seconds)]
+    run_ffmpeg([*args, "-ac", "1", "-ar", "44100", "-c:a", "pcm_f32le", str(dst)])
 
 
 def encode_output(src: Path, dst: Path, master: bool, preset: str = "podcast"):
@@ -141,7 +146,10 @@ def dfn_denoise(src: Path, tmp: Path):
     in48 = tmp / "dfn_in.wav"
     # -6 dB of headroom: DeepFilterNet writes 16-bit output and will hard-clip
     # peaks above full scale into audible crackle.
-    run_ffmpeg(["-i", str(src), "-af", "volume=0.5", "-ac", "1", "-ar", "48000", str(in48)])
+    args = ["-i", str(src)]
+    if ARGS.preview:
+        args += ["-t", str(ARGS.preview)]
+    run_ffmpeg([*args, "-af", "volume=0.5", "-ac", "1", "-ar", "48000", str(in48)])
     env = {**os.environ,
            "OMP_NUM_THREADS": str(ARGS.threads),
            "XDG_CACHE_HOME": str(PROJECT_DIR / "models" / "dfn-cache")}
@@ -225,10 +233,11 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         decoded = tmp / "decoded.wav"
-        decode_to_wav(args.input, decoded)
+        decode_to_wav(args.input, decoded, args.preview)
         audio, sr = sf.read(decoded, dtype="float32")
         dwav = torch.from_numpy(audio)
-        print(f"input: {args.input.name} ({len(audio) / sr:.1f}s @ {sr} Hz)", flush=True)
+        note = f" (preview: first {args.preview:g}s only)" if args.preview else ""
+        print(f"input: {args.input.name} ({len(audio) / sr:.1f}s @ {sr} Hz){note}", flush=True)
 
         hwav, new_sr = run_model(dwav, sr, args)
 
