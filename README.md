@@ -79,8 +79,9 @@ Progress, ETA, and memory usage are printed for every chunk.
   GPU shares unified memory with the OS, and PyTorch's MPS backend can
   exhaust it and freeze the machine - a lesson learned the hard way).
   Half the cores, low process priority, bounded memory via 10-second chunks.
-  Throughput is roughly 1.4x real time on an M-series CPU: an 8-minute
-  recording takes about 12 minutes.
+  Throughput is roughly 2.5x real time on an M-series CPU: an 8-minute
+  recording takes about 20 minutes. (Speed was traded for quality; lower
+  `--nfe` if you want it faster.)
 
 ## Credits
 

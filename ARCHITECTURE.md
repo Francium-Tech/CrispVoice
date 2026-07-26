@@ -87,7 +87,8 @@ The machine must stay usable while processing:
 - 10-second chunks bound peak memory (~6.6 GB RSS, ordinary swappable
   memory).
 - Per-chunk progress lines: percent, elapsed, ETA, RSS.
-- Throughput is roughly 1.4x real time (an 8.5 min file takes ~12 min).
+- Throughput is roughly 2.5x real time at the default quality settings
+  (nfe 64 + blend); an 8.5 min file takes ~20 min. Lower --nfe for speed.
 
 ## Repo layout
 
