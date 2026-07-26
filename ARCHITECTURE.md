@@ -23,7 +23,9 @@ Both are followed by a broadcast-style mastering chain for the final polish.
 |---|---|---|
 | Package/env manager | uv (project-local) | Everything, including the Python 3.11 interpreter, lives inside this folder (`.runtime/`, `.venv/`); one `uninstall.sh` removes it all |
 | ML runtime | PyTorch 2.2.2, CPU only | numpy pinned <2 for compatibility. GPU (Apple MPS) is deliberately banned: it shares unified memory with macOS and can freeze a 16 GB machine even with memory caps |
+| Clarity front-end | ClearerVoice MossFormer2_SE_48K (own venv `.venv-cv`) | Transformer speech enhancement pre-cleans the input; feeding re-synthesis a clean signal won the blind A/B for word intelligibility. Checkpoint (~211 MB) in `models/clearvoice/` |
 | Enhancement model | Resemble Enhance (MIT) | Two-stage: UNet denoiser + latent conditional flow matching (diffusion-style) enhancer, outputs re-synthesized 44.1 kHz speech. Weights (~713 MB) in `models/enhancer_stage2/` |
+| GPU fast path | torch 2.7 MPS in isolated subprocess (`.venv-gpu`, `gpu_runner.py`) | ~4.6x faster model stage; hard memory caps + CPU fallback; chunked convs work around Metal's silent >65535-channel corruption |
 | Dependency patch | Stub `deepspeed` package in site-packages | Real deepspeed is training-only and does not build on macOS; the stub satisfies imports, inference never calls it |
 | Audio I/O + DSP | ffmpeg 7.1 (bundled inside the venv via imageio-ffmpeg) | Decode any input format, apply the mastering filter chain, encode output. soundfile handles wav read/write at the Python boundary |
 | Entry point | `./enhance` -> `enhance.py` | Shell wrapper runs Python under `nice -n 15` |
@@ -32,11 +34,12 @@ Both are followed by a broadcast-style mastering chain for the final polish.
 
 ```mermaid
 flowchart TD
-    A["input file<br/>(mp3 / m4a / wav)"] --> B["ffmpeg decode<br/>mono, 44.1 kHz, float32"]
+    A["input file<br/>(mp3 / m4a / wav)"] --> CL["clarity front-end<br/>ClearerVoice MossFormer2 SE<br/>pre-cleans for word intelligibility"]
+    CL --> B["ffmpeg decode<br/>mono, 44.1 kHz, float32"]
     B --> C["chunker<br/>10 s chunks, 1 s overlap"]
     C --> D["Resemble Enhance (CPU)<br/>generative re-synthesis<br/>(CFM, lambd 0.4, nfe 64)"]
     D --> E["merge chunks<br/>cross-correlation alignment<br/>+ crossfade"]
-    A --> H["DeepFilterNet3<br/>phase-preserving denoise<br/>of the original"]
+    CL --> H["DeepFilterNet3<br/>phase-preserving denoise<br/>of the cleaned original"]
     E --> J["texture blend<br/>75% synthesis + 25% original<br/>restores transients, breaths,<br/>room decay"]
     H --> J
     J --> K["peak normalize<br/>(prevents hard clipping)"]
@@ -87,8 +90,9 @@ The machine must stay usable while processing:
 - 10-second chunks bound peak memory (~6.6 GB RSS, ordinary swappable
   memory).
 - Per-chunk progress lines: percent, elapsed, ETA, RSS.
-- Throughput is roughly 2.5x real time at the default quality settings
-  (nfe 64 + blend); an 8.5 min file takes ~20 min. Lower --nfe for speed.
+- Default device is auto: the model stage runs on Apple GPU (isolated,
+  memory-capped subprocess with CPU fallback), ~4.6x faster than CPU; an
+  8.5 min file takes ~5 min. --device cpu is ~2.5x real time (~20 min).
 
 ## Repo layout
 

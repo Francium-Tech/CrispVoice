@@ -60,6 +60,26 @@ uv venv --python 3.11 .venv-dfn
 uv pip install --python .venv-dfn/bin/python deepfilternet \
     "torch==2.1.2" "torchaudio==2.1.2" "numpy<2" soundfile
 
+echo "==> [3c/5] Creating ClearerVoice environment (clarity front-end)"
+uv venv --python 3.11 .venv-cv
+uv pip install --python .venv-cv/bin/python clearvoice
+# its MossFormer2_SE_48K checkpoint (~211 MB) downloads into models/clearvoice
+# on first run
+
+echo "==> [3d/5] Creating GPU fast-path environment (macOS Apple Silicon)"
+if [ "$(uname)" = "Darwin" ]; then
+    uv venv --python 3.11 .venv-gpu
+    uv pip install --python .venv-gpu/bin/python "torch==2.7.1" "torchaudio==2.7.1" \
+        "numpy<2" soundfile
+    uv pip install --python .venv-gpu/bin/python --no-deps resemble-enhance==0.0.1
+    uv pip install --python .venv-gpu/bin/python librosa omegaconf rich tqdm resampy \
+        tabulate pandas matplotlib celluloid ptflops
+    GPU_SP=$(.venv-gpu/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+    cp -R "$(.venv/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/deepspeed" "$GPU_SP/" 2>/dev/null || true
+else
+    echo "    (skipped: not macOS; the pipeline runs CPU-only elsewhere)"
+fi
+
 echo "==> [4/5] Downloading Resemble Enhance weights (~713 MB, one time)"
 HF="https://huggingface.co/ResembleAI/resemble-enhance/resolve/main/enhancer_stage2"
 mkdir -p models/enhancer_stage2/ds/G/default

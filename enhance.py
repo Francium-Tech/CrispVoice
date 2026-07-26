@@ -68,6 +68,12 @@ def parse_args():
     parser.add_argument("--no-master", action="store_true", help="skip EQ/compression/loudness mastering")
     parser.add_argument("--preview", type=float, default=None, metavar="SECONDS",
                         help="process only the first N seconds - a quick sample instead of the full run")
+    parser.add_argument("--no-clarity", action="store_true",
+                        help="skip the ClearerVoice clarity front-end (cleans the recording "
+                             "before re-synthesis; improves word intelligibility)")
+    parser.add_argument("--device", default="auto", choices=["auto", "cpu", "gpu"],
+                        help="auto (default): try Apple GPU in an isolated, memory-capped "
+                             "subprocess, fall back to cpu on any failure. gpu is ~4-5x faster.")
     parser.add_argument("--preset", default="podcast", choices=sorted(MASTER_PRESETS),
                         help="mastering flavor: 'podcast' (warm, produced, -16 LUFS) or "
                              "'natural' (neutral, dynamic, -19 LUFS). default podcast")
@@ -93,10 +99,11 @@ ARGS = parse_args()
 # Cap math-library threads BEFORE torch/numpy get imported.
 for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
     os.environ[var] = str(ARGS.threads)
-# CPU only, permanently: on Apple Silicon the GPU (MPS) shares unified memory
-# with the OS; PyTorch can exhaust it and hard-freeze the machine, even with
-# watermark caps. Do not add a GPU path back.
-ARGS.device = "cpu"
+# GPU history: MPS once froze a 16 GB machine (unbounded memory) and later
+# silently corrupted vocoder output (Metal convs >65535 channels). Both are
+# solved in gpu_runner.py: hard memory caps that error cleanly, subprocess
+# isolation, chunked convs verified bit-accurate vs CPU. The model stage runs
+# on GPU when available; everything else stays on CPU. --device cpu opts out.
 
 
 def ffmpeg_exe():
@@ -159,6 +166,60 @@ def dfn_denoise(src: Path, tmp: Path):
     out44 = tmp / "dfn_44.wav"
     run_ffmpeg(["-i", str(out48), "-af", "volume=2.0", "-ac", "1", "-ar", "44100", str(out44)])
     return out44
+
+
+def clarity_stage(tmp: Path):
+    """Pre-clean the recording with ClearerVoice (MossFormer2_SE_48K) before
+    re-synthesis. Won the blind A/B for word intelligibility. Returns the
+    cleaned wav path, or None to continue without it."""
+    import subprocess
+
+    runner_py = PROJECT_DIR / ".venv-cv" / "bin" / "python"
+    if not runner_py.exists():
+        print("note: .venv-cv missing, skipping clarity front-end (rerun setup.sh)", flush=True)
+        return None
+    in48 = tmp / "clarity_in.wav"
+    args = ["-i", str(ARGS.input)]
+    if ARGS.preview:
+        args += ["-t", str(ARGS.preview)]
+    # -6 dB headroom: models can emit peaks above full scale
+    run_ffmpeg([*args, "-af", "volume=0.5", "-ac", "1", "-ar", "48000", str(in48)])
+    out = tmp / "clarity_out.wav"
+    print("clarity front-end (MossFormer2) ...", flush=True)
+    try:
+        subprocess.run([str(runner_py), str(PROJECT_DIR / "cv_runner.py"), str(in48), str(out)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"clarity front-end unavailable ({e}), continuing without it", flush=True)
+        return None
+    return out if out.exists() else None
+
+
+def try_gpu_model(decoded: Path, tmp: Path, args):
+    """Run the model stage on Apple GPU via the isolated runner subprocess.
+    Returns (hwav tensor, sr) or None to signal CPU fallback."""
+    import subprocess
+
+    runner_py = PROJECT_DIR / ".venv-gpu" / "bin" / "python"
+    if args.device == "cpu" or sys.platform != "darwin" or not runner_py.exists():
+        return None
+    out = tmp / "gpu_out.wav"
+    cmd = [str(runner_py), str(PROJECT_DIR / "gpu_runner.py"), str(decoded), str(out),
+           str(args.nfe), str(args.lambd), str(args.tau)]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+        if proc.wait() != 0 or not out.exists():
+            raise RuntimeError("gpu runner failed")
+    except Exception as e:
+        print(f"gpu path unavailable ({e}), falling back to cpu", flush=True)
+        return None
+    import soundfile as sf
+    import torch
+
+    audio, sr = sf.read(out, dtype="float32")
+    return torch.from_numpy(audio), sr
 
 
 def rss_gb():
@@ -232,20 +293,30 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
+        src = args.input
+        if not args.no_clarity:
+            cleaned = clarity_stage(tmp)
+            if cleaned is not None:
+                src = cleaned
+
         decoded = tmp / "decoded.wav"
-        decode_to_wav(args.input, decoded, args.preview)
+        decode_to_wav(src, decoded, args.preview if src == args.input else None)
         audio, sr = sf.read(decoded, dtype="float32")
         dwav = torch.from_numpy(audio)
         note = f" (preview: first {args.preview:g}s only)" if args.preview else ""
         print(f"input: {args.input.name} ({len(audio) / sr:.1f}s @ {sr} Hz){note}", flush=True)
 
-        hwav, new_sr = run_model(dwav, sr, args)
+        gpu_result = try_gpu_model(decoded, tmp, args)
+        if gpu_result is not None:
+            hwav, new_sr = gpu_result
+        else:
+            hwav, new_sr = run_model(dwav, sr, args)
 
         # Blend in the phase-preserving denoised original: restores natural
         # voice grain and chest resonance the re-synthesis loses. (This won the
         # blind A/B against pure model output and pure denoise.)
         if not args.no_blend and args.blend > 0:
-            dfn_wav = dfn_denoise(args.input, tmp)
+            dfn_wav = dfn_denoise(src, tmp)
             if dfn_wav is not None:
                 print("blending in denoised original "
                       f"({1 - args.blend:.0%}/{args.blend:.0%}) ...", flush=True)

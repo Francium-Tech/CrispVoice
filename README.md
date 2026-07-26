@@ -17,17 +17,21 @@ sending their voice to a server.
 
 "Studio quality" is two problems, and this pipeline solves both:
 
-1. **Restoration** - a generative model ([Resemble
+1. **Clarity front-end** - a speech-enhancement transformer
+   ([ClearerVoice](https://github.com/modelscope/ClearerVoice-Studio)
+   MossFormer2) pre-cleans the recording. Feeding the re-synthesis a clean
+   input measurably improves word intelligibility of the final output.
+2. **Restoration** - a generative model ([Resemble
    Enhance](https://github.com/resemble-ai/resemble-enhance), MIT)
-   re-synthesizes the voice at 44.1 kHz, removing noise and adding back the
-   bandwidth and body a cheap microphone never captured.
-2. **Texture blend** - 25% of a
-   [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)-denoised copy of
-   the original is mixed back in. Re-synthesis alone sounds subtly synthetic;
-   the blend restores the natural transients, breaths, and room decay of the
-   real recording. This stage came out of blind A/B testing against a
-   commercial reference and moved the quality from "processed" to "studio."
-3. **Mastering** - a broadcast-style ffmpeg chain: chest warmth, articulation
+   re-synthesizes the voice at 44.1 kHz, adding back the bandwidth and body a
+   cheap microphone never captured.
+3. **Texture blend** - 25% of a
+   [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)-denoised copy is
+   mixed back in. Re-synthesis alone sounds subtly synthetic; the blend
+   restores natural transients, breaths, and room decay. This stage came out
+   of blind A/B testing against a commercial reference and moved the quality
+   from "processed" to "studio."
+4. **Mastering** - a broadcast-style ffmpeg chain: chest warmth, articulation
    and air EQ, de-essing, gentle 2:1 compression, and EBU R128 loudness
    normalization to -19 LUFS.
 
@@ -48,7 +52,8 @@ Two short clips, before and after (or use the players on the
 ## Quickstart
 
 Requires [uv](https://docs.astral.sh/uv/) and curl. Tested on macOS
-(Apple Silicon); Linux x86_64 should work. ~4 GB disk total.
+(Apple Silicon); Linux x86_64 should work. ~9 GB disk total (three model
+runtimes; every byte lives inside this folder and uninstalls with it).
 
 ```sh
 git clone https://github.com/Francium-Tech/CrispVoice.git
@@ -65,6 +70,8 @@ More options:
 ./enhance in.mp3 --nfe 32         # ~2x faster, slightly lower quality (default 64)
 ./enhance in.mp3 --blend 0.4      # more natural texture (default 0.25)
 ./enhance in.mp3 --preset natural # lighter compression, more dynamics
+./enhance in.mp3 --device cpu     # skip the Apple GPU fast path (auto by default)
+./enhance in.mp3 --no-clarity     # skip the ClearerVoice pre-clean stage
 ./enhance in.mp3 --denoise-only   # cleanup without generative re-synthesis
 ./enhance in.mp3 --threads 2      # use even less CPU
 ./enhance in.mp3 --no-master      # skip the mastering chain
@@ -82,9 +89,10 @@ Progress, ETA, and memory usage are printed for every chunk.
   GPU shares unified memory with the OS, and PyTorch's MPS backend can
   exhaust it and freeze the machine - a lesson learned the hard way).
   Half the cores, low process priority, bounded memory via 10-second chunks.
-  Throughput is roughly 2.5x real time on an M-series CPU: an 8-minute
-  recording takes about 20 minutes. (Speed was traded for quality; lower
-  `--nfe` if you want it faster.)
+  On Apple Silicon the heavy model stage runs on the GPU by default - in an
+  isolated, memory-capped subprocess that falls back to CPU on any failure -
+  bringing an 8-minute recording to roughly 5 minutes. Pure CPU
+  (`--device cpu`) is roughly 2.5x real time (~20 minutes for the same file).
 
 ## Credits
 
