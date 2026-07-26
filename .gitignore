@@ -23,6 +23,8 @@ samples/
 !demo/crispvoice.mp3
 !demo/woman.m4a
 !demo/woman_crispvoice.mp3
+!demo/umm.m4a
+!demo/umm_crispvoice.mp3
 
 # OS / editor noise
 .DS_Store

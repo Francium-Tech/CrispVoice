@@ -41,13 +41,14 @@ tool's output.
 
 ## Hear it
 
-Two short clips, before and after (or use the players on the
+Three short clips, before and after (or use the players on the
 [demo page](https://crispvoice.francium.tech)):
 
 | Voice | Before | After |
 |---|---|---|
 | Interview, room noise | [demo/noise.m4a](demo/noise.m4a) | [demo/crispvoice.mp3](demo/crispvoice.mp3) |
 | Broadcast clip, compressed | [demo/woman.m4a](demo/woman.m4a) | [demo/woman_crispvoice.mp3](demo/woman_crispvoice.mp3) |
+| Casual memo, mild background noise | [demo/umm.m4a](demo/umm.m4a) | [demo/umm_crispvoice.mp3](demo/umm_crispvoice.mp3) |
 
 ## Quickstart
 
