@@ -61,7 +61,9 @@ More options:
 
 ```sh
 ./enhance in.mp3 out.mp3          # output format follows the extension (wav/mp3/m4a)
+./enhance in.mp3 --nfe 32         # ~2x faster, slightly lower quality (default 64)
 ./enhance in.mp3 --blend 0.4      # more natural texture (default 0.25)
+./enhance in.mp3 --preset natural # lighter compression, more dynamics
 ./enhance in.mp3 --denoise-only   # cleanup without generative re-synthesis
 ./enhance in.mp3 --threads 2      # use even less CPU
 ./enhance in.mp3 --no-master      # skip the mastering chain
